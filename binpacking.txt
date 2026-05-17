@@ -1,0 +1,1158 @@
+# ================================================================
+#                       DATA SECTION
+# ================================================================
+.data
+    # ------------------------------
+    # Constants
+    # ------------------------------
+    MAX_ITEMS:      .word 100        # Maximum number of items we can handle
+    BIN_CAPACITY:   .float 1.0       # Each bin has capacity of 1.0
+    FLOAT_ZERO:     .float 0.0       # Zero constant for float comparisons
+    EPSILON:        .float 0.000001  # Small epsilon for floating-point comparisons
+    
+    # ------------------------------
+    # User Interface Strings
+    # ------------------------------
+    welcome_msg:    .asciiz "Bin Packing Problem Solver - MIPS Assembly\n"
+    menu_prompt:    .asciiz "\nMenu:\n1. First Fit (FF)\n2. Best Fit (BF)\nQ. Quit\nEnter your choice: "
+    file_prompt:    .asciiz "Enter the input file name/path: "
+    output_prompt:  .asciiz "Enter the output file name/path: "
+    invalid_choice: .asciiz "Invalid choice. Please try again.\n"
+    file_error_msg: .asciiz "Error: Unable to open file. Please check the filename/path.\n"
+    invalid_data:   .asciiz "Error: Invalid data in input file. Item sizes must be between 0 and 1.\n"
+    success_msg:    .asciiz "Operation completed successfully. Results written to output file.\n"
+    exit_msg:       .asciiz "Exiting program. Goodbye!\n"
+    newline:        .asciiz "\n"
+    space:          .asciiz " "
+    bin_header:     .asciiz "Bin "
+    items_header:   .asciiz "Items: "
+    total_bins_msg: .asciiz "Total bins used: "
+    
+    # ------------------------------
+    # Debug Messages
+    # ------------------------------
+    debug_ff_start: .asciiz "\nDEBUG: Starting First Fit algorithm\n"
+    debug_bf_start: .asciiz "\nDEBUG: Starting Best Fit algorithm\n"
+    debug_item_added: .asciiz "DEBUG: Added item "
+    debug_to_bin:   .asciiz " to bin "
+    debug_new_bin:  .asciiz "DEBUG: Created new bin "
+    debug_bin_capacity: .asciiz "DEBUG: Bin 1 capacity: "
+    debug_remaining: .asciiz " (remaining: "
+    debug_close_paren: .asciiz ")\n"
+    debug_float:    .space 20        # Buffer for float to string conversion
+        debug_reading_items: .asciiz "\nDEBUG: Reading items from file:\n"
+    debug_item_value:    .asciiz "Item value: "
+    debug_items_read:    .asciiz "DEBUG: Total items read: "
+
+    float_buffer: .space 32  # Buffer for reading float strings
+    
+    # ------------------------------
+    # Buffers
+    # ------------------------------
+    input_filename: .space 256        # Buffer for input filename
+    output_filename: .space 256       # Buffer for output filename
+    user_choice:    .space 4          # Buffer for menu choice
+    
+    # ------------------------------
+    # Data Structures
+    # ------------------------------
+    item_sizes:     .float 0:100      # Array to store item sizes (max 100 items)
+    bin_contents:   .word  0:1000     # 2D array to track which items are in which bins (100 bins max, 10 items per bin)
+    bin_space:      .float 0:100      # Remaining space in each bin
+    num_items:      .word  0          # Number of items read from file
+    num_bins:       .word  0          # Number of bins used
+
+# ================================================================
+#                       TEXT SECTION (MAIN PROGRAM)
+# ================================================================
+.text
+.globl main
+
+# ------------------------------
+# Main Program Entry Point
+# ------------------------------
+main:
+    # Print welcome message
+    li $v0, 4
+    la $a0, welcome_msg
+    syscall
+    
+    # ------------------------------
+    # Main Menu Loop
+    # ------------------------------
+    menu_loop:
+        # Display menu options
+        li $v0, 4
+        la $a0, menu_prompt
+        syscall
+        
+        # Get user choice
+        li $v0, 8
+        la $a0, user_choice
+        li $a1, 4
+        syscall
+        
+        # Process user choice
+        lb $t0, user_choice
+        
+        # Check for 'Q' or 'q' to quit
+        beq $t0, 'Q', exit_program
+        beq $t0, 'q', exit_program
+        
+        # Check for '1' for First Fit
+        beq $t0, '1', first_fit_selected
+        
+        # Check for '2' for Best Fit
+        beq $t0, '2', best_fit_selected
+        
+        # Invalid choice
+        li $v0, 4
+        la $a0, invalid_choice
+        syscall
+        j menu_loop
+        
+    # ------------------------------
+    # First Fit Algorithm Selected
+    # ------------------------------
+    first_fit_selected:
+        # Print debug message
+        li $v0, 4
+        la $a0, debug_ff_start
+        syscall
+        
+        jal read_input_file
+        jal first_fit
+        
+        # Print bin 1 capacity after first fit
+        jal print_bin1_capacity
+        
+        jal write_output_file
+        j menu_loop
+        
+    # ------------------------------
+    # Best Fit Algorithm Selected
+    # ------------------------------
+    best_fit_selected:
+        # Print debug message
+        li $v0, 4
+        la $a0, debug_bf_start
+        syscall
+        
+        jal read_input_file
+        jal best_fit
+        
+        # Print bin 1 capacity after best fit
+        jal print_bin1_capacity
+        
+        jal write_output_file
+        j menu_loop
+        
+    # ------------------------------
+    # Exit Program
+    # ------------------------------
+    exit_program:
+        li $v0, 4
+        la $a0, exit_msg
+        syscall
+        li $v0, 10
+        syscall
+
+# ================================================================
+#                       HELPER FUNCTIONS
+# ================================================================
+
+# ------------------------------
+# Function: print_bin1_capacity
+# Prints the remaining capacity of Bin 1 (for debugging)
+# ------------------------------
+print_bin1_capacity:
+    addi $sp, $sp, -8
+    sw $ra, 0($sp)
+    sw $a0, 4($sp)
+    
+    # Print debug message prefix
+    li $v0, 4
+    la $a0, debug_bin_capacity
+    syscall
+    
+    # Calculate and print ACTUAL remaining capacity (1.0 - contents)
+    la $t0, bin_space
+    l.s $f1, ($t0)           # Current contents
+    l.s $f2, BIN_CAPACITY    # 1.0
+    sub.s $f12, $f2, $f1     # Remaining capacity
+    li $v0, 2
+    syscall
+    
+    # Print newline
+    li $v0, 4
+    la $a0, newline
+    syscall
+    
+    lw $ra, 0($sp)
+    lw $a0, 4($sp)
+    addi $sp, $sp, 8
+    jr $ra
+    
+# ------------------------------
+# Function: read_input_file
+# Reads item sizes from input file and validates them
+# ------------------------------
+read_input_file:
+    # Save registers to stack
+    addi $sp, $sp, -16
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)
+    sw $s1, 8($sp)
+    sw $s2, 12($sp)  # Additional register for line reading
+    
+    # Prompt for input filename
+    li $v0, 4
+    la $a0, file_prompt
+    syscall
+    
+    # Read filename
+    li $v0, 8
+    la $a0, input_filename
+    li $a1, 256
+    syscall
+    
+    # Remove newline from filename
+    la $s0, input_filename
+remove_newline_loop:
+    lb $t0, ($s0)
+    beq $t0, '\n', found_newline
+    beq $t0, $zero, newline_not_found
+    addi $s0, $s0, 1
+    j remove_newline_loop
+found_newline:
+    sb $zero, ($s0)
+newline_not_found:
+
+    # Open file
+    li $v0, 13
+    la $a0, input_filename
+    li $a1, 0        # Read flag
+    li $a2, 0
+    syscall
+    
+    # Check for file open error
+    bltz $v0, file_error
+    move $s0, $v0     # Save file descriptor
+    
+    # Initialize item counter
+    li $s1, 0         # $s1 = item count
+    la $s2, item_sizes # $s2 = pointer to item_sizes array
+    
+    # Print debug header
+    li $v0, 4
+    la $a0, debug_reading_items
+    syscall
+
+read_loop:
+    # Read line into buffer
+    li $v0, 14
+    move $a0, $s0
+    la $a1, float_buffer
+    li $a2, 32
+    syscall
+    
+    # Check if read was successful or EOF
+    blez $v0, read_done
+    
+    # Convert string to float
+    la $a0, float_buffer
+    jal string_to_float
+    s.s $f0, ($s2)     # Store the float in item_sizes
+    
+    # DEBUG: Print the float just read
+    li $v0, 4
+    la $a0, debug_item_value
+    syscall
+    li $v0, 2
+    l.s $f12, ($s2)
+    syscall
+    li $v0, 4
+    la $a0, newline
+    syscall
+    
+    # Validate the float (0 < size <= 1.0)
+    l.s $f0, ($s2)
+    l.s $f1, FLOAT_ZERO
+    c.le.s $f0, $f1
+    bc1t invalid_item
+    l.s $f1, BIN_CAPACITY
+    c.lt.s $f1, $f0
+    bc1t invalid_item
+    
+    # Valid item, increment counters
+    addi $s1, $s1, 1
+    addi $s2, $s2, 4
+    
+    # Check if we've reached max items
+    lw $t0, MAX_ITEMS
+    bge $s1, $t0, read_done
+    
+    j read_loop
+
+read_done:
+    # Close file
+    li $v0, 16
+    move $a0, $s0
+    syscall
+    
+    # Print total items read
+    li $v0, 4
+    la $a0, debug_items_read
+    syscall
+    li $v0, 1
+    move $a0, $s1
+    syscall
+    li $v0, 4
+    la $a0, newline
+    syscall
+    
+    # Store number of items
+    sw $s1, num_items
+    
+    # Restore registers and return
+    lw $ra, 0($sp)
+    lw $s0, 4($sp)
+    lw $s1, 8($sp)
+    lw $s2, 12($sp)
+    addi $sp, $sp, 16
+    jr $ra
+
+file_error:
+    li $v0, 4
+    la $a0, file_error_msg
+    syscall
+    lw $ra, 0($sp)
+    lw $s0, 4($sp)
+    lw $s1, 8($sp)
+    lw $s2, 12($sp)
+    addi $sp, $sp, 16
+    jr $ra
+
+invalid_item:
+    li $v0, 4
+    la $a0, invalid_data
+    syscall
+    # Close file
+    li $v0, 16
+    move $a0, $s0
+    syscall
+    lw $ra, 0($sp)
+    lw $s0, 4($sp)
+    lw $s1, 8($sp)
+    lw $s2, 12($sp)
+    addi $sp, $sp, 16
+    jr $ra
+# ================================================================
+#                       BIN PACKING ALGORITHMS
+# ================================================================
+
+# ------------------------------
+# Function: first_fit
+# Implements the First Fit bin packing heuristic
+# ------------------------------
+first_fit:
+    # Save registers to stack
+    addi $sp, $sp, -24
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)    # Current item index
+    sw $s1, 8($sp)    # Current bin index
+    sw $s2, 12($sp)   # Number of items
+    sw $s3, 16($sp)   # Item size address
+    sw $s4, 20($sp)   # Bin space address
+    
+    # Initialize
+    lw $s2, num_items
+    beqz $s2, ff_done  # No items to pack
+    
+    # Reset bins
+    jal reset_bins
+    
+    # Initialize item pointer
+    la $s3, item_sizes
+    
+    # Process each item
+    li $s0, 0         # Item index
+    ff_item_loop:
+        bge $s0, $s2, ff_done
+        
+        # Load current item size
+        l.s $f0, ($s3)
+        
+        # Try to find a bin with enough space
+        li $s1, 0      # Bin index
+        la $s4, bin_space
+        ff_bin_search:
+            # Check if we've checked all bins
+            lw $t0, num_bins
+            bge $s1, $t0, ff_new_bin
+            
+            # Check if this bin has enough space (1.0 - current contents >= item size)
+            l.s $f1, ($s4)           # Current bin contents
+            l.s $f2, BIN_CAPACITY    # 1.0
+            sub.s $f3, $f2, $f1      # Remaining capacity
+            c.lt.s $f0, $f3          # if item_size < remaining capacity
+            bc1t ff_found_bin        # Branch if there's enough space
+            
+            # Next bin
+            addi $s1, $s1, 1
+            addi $s4, $s4, 4
+            j ff_bin_search
+            
+        ff_found_bin:
+            # Print debug message
+            li $v0, 4
+            la $a0, debug_item_added
+            syscall
+            
+            # Print item number (1-based)
+            li $v0, 1
+            addi $a0, $s0, 1
+            syscall
+            
+            li $v0, 4
+            la $a0, debug_to_bin
+            syscall
+            
+            # Print bin number (1-based)
+            li $v0, 1
+            addi $a0, $s1, 1
+            syscall
+            
+            # Calculate and print ACTUAL remaining space BEFORE adding item
+            li $v0, 4
+            la $a0, debug_remaining
+            syscall
+            
+            l.s $f1, ($s4)           # Current bin contents
+            l.s $f2, BIN_CAPACITY    # 1.0
+            sub.s $f12, $f2, $f1     # Actual remaining capacity
+            li $v0, 2
+            syscall
+            
+            li $v0, 4
+            la $a0, debug_close_paren
+            syscall
+            
+            # Verify item actually fits before adding
+            c.lt.s $f0, $f12          # Check if item fits
+            bc1f ff_new_bin           # If not, create new bin
+            
+            # Add item to existing bin
+            move $s5, $s1
+            jal add_item_to_bin
+            j ff_next_item
+
+        ff_new_bin:
+            # Create new bin
+            jal create_new_bin
+            
+            # Print debug message
+            move $t0, $v0  # Save new bin index
+            li $v0, 4
+            la $a0, debug_new_bin
+            syscall
+            
+            li $v0, 1
+            addi $a0, $t0, 1  # Print 1-based index
+            syscall
+            
+            li $v0, 4
+            la $a0, newline
+            syscall
+            
+            # Add item to new bin
+            move $s5, $t0  # Set bin index for add_item_to_bin
+            jal add_item_to_bin
+        
+        ff_next_item:
+            # Move to next item
+            addi $s0, $s0, 1
+            addi $s3, $s3, 4
+            j ff_item_loop
+    
+    ff_done:
+        # Restore registers and return
+        lw $ra, 0($sp)
+        lw $s0, 4($sp)
+        lw $s1, 8($sp)
+        lw $s2, 12($sp)
+        lw $s3, 16($sp)
+        lw $s4, 20($sp)
+        addi $sp, $sp, 24
+        jr $ra
+
+# ------------------------------
+# Function: best_fit
+# Implements the Best Fit bin packing heuristic
+# ------------------------------
+best_fit:
+    # Save registers to stack
+    addi $sp, $sp, -28
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)    # Current item index
+    sw $s1, 8($sp)    # Best bin index
+    sw $s2, 12($sp)   # Number of items
+    sw $s3, 16($sp)   # Item size address
+    sw $s4, 20($sp)   # Bin space address
+    sw $s5, 24($sp)   # Current bin index
+    
+    # Initialize
+    lw $s2, num_items
+    beqz $s2, bf_done  # No items to pack
+    
+    # Reset bins
+    jal reset_bins
+    
+    # Initialize item pointer
+    la $s3, item_sizes
+    
+    # Process each item
+    li $s0, 0         # Item index
+    bf_item_loop:
+        bge $s0, $s2, bf_done
+        
+        # Load current item size
+        l.s $f0, ($s3)
+        
+        # Initialize best bin search
+        li $s1, -1     # Best bin index (-1 = none found)
+        l.s $f4, FLOAT_ZERO  # Best remaining space (init to 0)
+        
+        # Search through all bins to find the best fit
+        li $s5, 0      # Current bin index
+        la $s4, bin_space
+        bf_bin_search:
+            # Check if we've checked all bins
+            lw $t0, num_bins
+            bge $s5, $t0, bf_bin_search_done
+            
+            # Check if this bin has enough space (with epsilon)
+            l.s $f1, ($s4)           # Current bin space
+            l.s $f2, BIN_CAPACITY    # 1.0
+            sub.s $f3, $f2, $f1      # Remaining capacity
+            l.s $f5, EPSILON         # Small epsilon
+            add.s $f3, $f3, $f5      # Add epsilon to remaining capacity
+            c.lt.s $f0, $f3          # if item_size <= (remaining + epsilon)
+            bc1f bf_next_bin         # Skip if not enough space
+            
+            # This bin has space - check if it's the best fit
+            mov.s $f5, $f1           # Current bin's used space
+            
+            # If no best bin yet or this bin has less remaining space (tighter fit)
+            bltz $s1, bf_new_best
+            c.lt.s $f5, $f4          # if current_used > best_used (since we want minimal remaining)
+            bc1f bf_next_bin
+            
+            bf_new_best:
+                move $s1, $s5
+                mov.s $f4, $f5
+            
+            bf_next_bin:
+                addi $s5, $s5, 1
+                addi $s4, $s4, 4
+                j bf_bin_search
+        
+        bf_bin_search_done:
+            # Check if we found a bin
+            bgez $s1, bf_found_bin
+            
+            # No bin found - create new one
+            jal create_new_bin
+            
+            # Print debug message
+            move $t0, $v0  # Save new bin index
+            li $v0, 4
+            la $a0, debug_new_bin
+            syscall
+            
+            li $v0, 1
+            addi $a0, $t0, 1  # Print 1-based index
+            syscall
+            
+            li $v0, 4
+            la $a0, newline
+            syscall
+            
+            move $s1, $t0  # New bin index
+            
+        bf_found_bin:
+            # Print debug message
+            li $v0, 4
+            la $a0, debug_item_added
+            syscall
+            
+            # Print item number (1-based)
+            li $v0, 1
+            addi $a0, $s0, 1
+            syscall
+            
+            li $v0, 4
+            la $a0, debug_to_bin
+            syscall
+            
+            # Print bin number (1-based)
+            li $v0, 1
+            addi $a0, $s1, 1
+            syscall
+            
+            # Print remaining space
+            li $v0, 4
+            la $a0, debug_remaining
+            syscall
+            
+            # Get remaining space for this bin
+            la $t0, bin_space
+            sll $t1, $s1, 2
+            add $t0, $t0, $t1
+            l.s $f12, ($t0)
+            li $v0, 2
+            syscall
+            
+            li $v0, 4
+            la $a0, debug_close_paren
+            syscall
+            
+            # Add item to best bin
+            move $s5, $s1  # Use best bin index
+            jal add_item_to_bin
+        
+        # Move to next item
+        addi $s0, $s0, 1
+        addi $s3, $s3, 4
+        j bf_item_loop
+    
+    bf_done:
+        # Restore registers and return
+        lw $ra, 0($sp)
+        lw $s0, 4($sp)
+        lw $s1, 8($sp)
+        lw $s2, 12($sp)
+        lw $s3, 16($sp)
+        lw $s4, 20($sp)
+        lw $s5, 24($sp)
+        addi $sp, $sp, 28
+        jr $ra
+
+# ================================================================
+#                       BIN MANAGEMENT FUNCTIONS
+# ================================================================
+
+# ------------------------------
+# Function: reset_bins
+# Resets all bin data structures
+# ------------------------------
+reset_bins:
+    # Save registers
+    addi $sp, $sp, -8
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)
+    
+    # Reset number of bins
+    sw $zero, num_bins
+    
+    # Reset bin space array
+    la $s0, bin_space
+    lw $t0, MAX_ITEMS
+    li $t1, 0
+    l.s $f0, FLOAT_ZERO
+    reset_bin_space_loop:
+        bge $t1, $t0, reset_bin_space_done
+        s.s $f0, ($s0)
+        addi $s0, $s0, 4
+        addi $t1, $t1, 1
+        j reset_bin_space_loop
+    reset_bin_space_done:
+    
+    # Reset bin contents (more complex as it's a 2D array)
+    # For simplicity, we'll just zero out the first word of each bin's item list
+    la $s0, bin_contents
+    lw $t0, MAX_ITEMS
+    li $t1, 0
+    reset_bin_contents_loop:
+        bge $t1, $t0, reset_bin_contents_done
+        sw $zero, ($s0)
+        addi $s0, $s0, 40  # Each bin has space for 10 items (4 bytes each)
+        addi $t1, $t1, 1
+        j reset_bin_contents_loop
+    reset_bin_contents_done:
+    
+    # Restore registers and return
+    lw $ra, 0($sp)
+    lw $s0, 4($sp)
+    addi $sp, $sp, 8
+    jr $ra
+
+# ------------------------------
+# Function: create_new_bin
+# Creates a new bin and returns its index in $v0
+# ------------------------------
+create_new_bin:
+    # Get current number of bins
+    lw $t0, num_bins
+    lw $t1, MAX_ITEMS
+    bge $t0, $t1, cnb_error  # Shouldn't happen with proper MAX_ITEMS
+    
+    # Increment bin count
+    addi $t0, $t0, 1
+    sw $t0, num_bins
+    
+    # Initialize bin space (already zeroed by reset_bins)
+    # Return bin index (num_bins - 1)
+    move $v0, $t0
+    addi $v0, $v0, -1
+    jr $ra
+    
+    cnb_error:
+        li $v0, -1
+        jr $ra
+
+# ------------------------------
+# Function: add_item_to_bin
+# Adds current item to specified bin
+# Inputs: $s0 = item index, $s5 = bin index, $f0 = item size
+# ------------------------------
+add_item_to_bin:
+    # Save registers
+    addi $sp, $sp, -12
+    sw $ra, 0($sp)
+    sw $s6, 4($sp)
+    sw $s7, 8($sp)
+    
+    # Update bin space (current contents + item size)
+    la $s6, bin_space
+    sll $t0, $s5, 2
+    add $s6, $s6, $t0
+    l.s $f1, ($s6)
+    add.s $f1, $f1, $f0
+    s.s $f1, ($s6)
+    
+    # Add item to bin's contents list
+    la $s6, bin_contents
+    li $t0, 40          # Each bin has space for 10 items (4 bytes each)
+    mul $t0, $s5, $t0   # bin index * 40
+    add $s6, $s6, $t0   # start of bin's item list
+    
+    # Find first empty slot (word with value 0)
+    li $s7, 0
+    aitb_find_slot:
+        bge $s7, 10, aitb_error  # Shouldn't happen with proper packing
+        lw $t0, ($s6)
+        beqz $t0, aitb_found_slot
+        addi $s6, $s6, 4
+        addi $s7, $s7, 1
+        j aitb_find_slot
+    
+    aitb_found_slot:
+        # Store item index (1-based)
+        addi $t0, $s0, 1
+        sw $t0, ($s6)
+    
+    # Restore registers and return
+    lw $ra, 0($sp)
+    lw $s6, 4($sp)
+    lw $s7, 8($sp)
+    addi $sp, $sp, 12
+    jr $ra
+    
+    aitb_error:
+        # Shouldn't happen if packing is correct
+        lw $ra, 0($sp)
+        lw $s6, 4($sp)
+        lw $s7, 8($sp)
+        addi $sp, $sp, 12
+        jr $ra
+
+# ================================================================
+#                       OUTPUT FUNCTIONS
+# ================================================================
+
+# ------------------------------
+# Function: write_output_file
+# Writes the packing results to an output file
+# ------------------------------
+write_output_file:
+    # Save registers to stack
+    addi $sp, $sp, -24
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)    # Bin index
+    sw $s1, 8($sp)    # Item index in bin
+    sw $s2, 12($sp)   # Number of bins
+    sw $s3, 16($sp)   # Bin contents address
+    sw $s4, 20($sp)   # File descriptor
+    
+    # Prompt for output filename
+    li $v0, 4
+    la $a0, output_prompt
+    syscall
+    
+    # Read filename
+    li $v0, 8
+    la $a0, output_filename
+    li $a1, 256
+    syscall
+    
+    # Remove newline from filename
+    la $t0, output_filename
+    remove_newline_loop2:
+        lb $t1, ($t0)
+        beq $t1, '\n', found_newline2
+        beq $t1, $zero, newline_not_found2
+        addi $t0, $t0, 1
+        j remove_newline_loop2
+    found_newline2:
+        sb $zero, ($t0)
+    newline_not_found2:
+    
+    # Open file for writing
+    li $v0, 13
+    la $a0, output_filename
+    li $a1, 1         # Write flag
+    li $a2, 0
+    syscall
+    
+    # Check for file open error
+    bltz $v0, wof_error
+    move $s4, $v0     # Save file descriptor
+    
+    # Write total bins message
+    li $v0, 15
+    move $a0, $s4
+    la $a1, total_bins_msg
+    li $a2, 15        # Length of "Total bins used: "
+    syscall
+    
+    # Write number of bins
+    lw $a0, num_bins
+    # Convert to string
+    addi $sp, $sp, -16
+    move $a1, $sp
+    jal int_to_string
+    move $a1, $v0     # String address
+    move $a2, $v1     # String length
+    
+    li $v0, 15
+    move $a0, $s4
+    syscall
+    
+    # Write newline
+    li $v0, 15
+    move $a0, $s4
+    la $a1, newline
+    li $a2, 1
+    syscall
+    
+    addi $sp, $sp, 16
+    
+    # Loop through all bins
+    lw $s2, num_bins
+    li $s0, 0         # Bin index
+    wof_bin_loop:
+        bge $s0, $s2, wof_done
+        
+        # Write bin header
+        li $v0, 15
+        move $a0, $s4
+        la $a1, bin_header
+        li $a2, 4      # Length of "Bin "
+        syscall
+        
+        # Write bin number (1-based)
+        addi $a0, $s0, 1
+        addi $sp, $sp, -16
+        move $a1, $sp
+        jal int_to_string
+        move $a1, $v0     # String address
+        move $a2, $v1     # String length
+        
+        li $v0, 15
+        move $a0, $s4
+        syscall
+        
+        # Write items header
+        li $v0, 15
+        move $a0, $s4
+        la $a1, items_header
+        li $a2, 7      # Length of "Items: "
+        syscall
+        
+        addi $sp, $sp, 16
+        
+        # Get bin contents address
+        la $s3, bin_contents
+        li $t0, 40     # Each bin has space for 10 items (4 bytes each)
+        mul $t0, $s0, $t0
+        add $s3, $s3, $t0
+        
+        # Loop through items in this bin
+        li $s1, 0      # Item index in bin
+        wof_item_loop:
+            bge $s1, 10, wof_next_bin  # Max 10 items per bin
+            
+            lw $t0, ($s3)
+            beqz $t0, wof_next_bin      # End of items in this bin
+            
+            # Write item number
+            addi $sp, $sp, -16
+            move $a0, $t0
+            move $a1, $sp
+            jal int_to_string
+            move $a1, $v0     # String address
+            move $a2, $v1     # String length
+            
+            li $v0, 15
+            move $a0, $s4
+            syscall
+            
+            # Write space
+            li $v0, 15
+            move $a0, $s4
+            la $a1, space
+            li $a2, 1
+            syscall
+            
+            addi $sp, $sp, 16
+            
+            # Next item in bin
+            addi $s3, $s3, 4
+            addi $s1, $s1, 1
+            j wof_item_loop
+        
+        wof_next_bin:
+            # Write newline
+            li $v0, 15
+            move $a0, $s4
+            la $a1, newline
+            li $a2, 1
+            syscall
+            
+            # Next bin
+            addi $s0, $s0, 1
+            j wof_bin_loop
+    
+    wof_done:
+        # Close file
+        li $v0, 16
+        move $a0, $s4
+        syscall
+        
+        # Print success message
+        li $v0, 4
+        la $a0, success_msg
+        syscall
+        
+        # Restore registers and return
+        lw $ra, 0($sp)
+        lw $s0, 4($sp)
+        lw $s1, 8($sp)
+        lw $s2, 12($sp)
+        lw $s3, 16($sp)
+        lw $s4, 20($sp)
+        addi $sp, $sp, 24
+        jr $ra
+    
+    wof_error:
+        li $v0, 4
+        la $a0, file_error_msg
+        syscall
+        lw $ra, 0($sp)
+        lw $s0, 4($sp)
+        lw $s1, 8($sp)
+        lw $s2, 12($sp)
+        lw $s3, 16($sp)
+        lw $s4, 20($sp)
+        addi $sp, $sp, 24
+        jr $ra
+
+# ================================================================
+#                       UTILITY FUNCTIONS
+# ================================================================
+# ================================================================
+#                       STRING TO FLOAT CONVERSION
+# ================================================================
+# Function: string_to_float
+# Converts ASCII string to float
+# Input: $a0 = string address
+# Output: $f0 = float value
+string_to_float:
+    addi $sp, $sp, -16
+    sw $ra, 0($sp)
+    sw $a0, 4($sp)
+    sw $t0, 8($sp)
+    sw $t1, 12($sp)
+    
+    # Initialize variables
+    li $t0, 0          # Integer part
+    li $t1, 0          # Fractional part
+    li $t2, 10         # Base 10
+    li $t3, 0          # Decimal places counter
+    li $t4, 0          # Negative flag
+    li $t5, 0          # Temporary character
+    
+    # Check for negative sign
+    lb $t5, ($a0)
+    bne $t5, '-', positive_num
+    li $t4, 1          # Set negative flag
+    addi $a0, $a0, 1   # Move past '-'
+    
+positive_num:
+    # Convert integer part
+int_loop:
+    lb $t5, ($a0)
+    beq $t5, '.', frac_start  # Start fractional part
+    beq $t5, 10, convert_done # Newline
+    beq $t5, 0, convert_done  # Null terminator
+    
+    # Convert digit
+    sub $t5, $t5, '0'
+    mul $t0, $t0, $t2
+    add $t0, $t0, $t5
+    
+    addi $a0, $a0, 1
+    j int_loop
+    
+frac_start:
+    addi $a0, $a0, 1   # Move past '.'
+    
+    # Convert fractional part
+frac_loop:
+    lb $t5, ($a0)
+    beq $t5, 10, convert_done # Newline
+    beq $t5, 0, convert_done  # Null terminator
+    
+    # Convert digit
+    sub $t5, $t5, '0'
+    mul $t1, $t1, $t2
+    add $t1, $t1, $t5
+    addi $t3, $t3, 1   # Increment decimal places
+    
+    addi $a0, $a0, 1
+    j frac_loop
+    
+convert_done:
+    # Convert integer part to float
+    mtc1 $t0, $f0
+    cvt.s.w $f0, $f0
+    
+    # Handle fractional part if exists
+    beq $t3, 0, no_fraction
+    
+    # Convert fractional part to float
+    mtc1 $t1, $f1
+    cvt.s.w $f1, $f1
+    
+    # Calculate 10^decimal_places
+    li $t6, 1
+    mtc1 $t6, $f2
+    cvt.s.w $f2, $f2
+    
+    li $t6, 10
+    mtc1 $t6, $f3
+    cvt.s.w $f3, $f3
+    
+    # Compute divisor (10^decimal_places)
+    move $t6, $t3
+power_loop:
+    blez $t6, power_done
+    mul.s $f2, $f2, $f3
+    addi $t6, $t6, -1
+    j power_loop
+    
+power_done:
+    # Complete fractional part
+    div.s $f1, $f1, $f2
+    add.s $f0, $f0, $f1
+    
+no_fraction:
+    # Handle negative numbers
+    beq $t4, 0, positive_result
+    neg.s $f0, $f0
+    
+positive_result:
+    # Restore registers and return
+    lw $ra, 0($sp)
+    lw $a0, 4($sp)
+    lw $t0, 8($sp)
+    lw $t1, 12($sp)
+    addi $sp, $sp, 16
+    jr $ra
+# ------------------------------
+# Function: int_to_string
+# Converts an integer to a string
+# Input: $a0 = integer, $a1 = buffer address
+# Output: $v0 = string address, $v1 = string length
+# ------------------------------
+int_to_string:
+    # Save registers
+    addi $sp, $sp, -16
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)
+    sw $s1, 8($sp)
+    sw $s2, 12($sp)
+    
+    move $s0, $a1  # Buffer address
+    move $s1, $a0  # Number
+    li $s2, 0      # Digit count
+    
+    # Handle zero case
+    bnez $s1, its_nonzero
+    li $t0, '0'
+    sb $t0, ($s0)
+    addi $s0, $s0, 1
+    addi $s2, $s2, 1
+    j its_done
+    
+    its_nonzero:
+        # Handle negative numbers (not needed here as our numbers are positive)
+        bgez $s1, its_positive
+        # Negative number handling would go here
+        
+    its_positive:
+        # Extract digits
+        li $t1, 10
+        its_extract_loop:
+            beqz $s1, its_reverse
+            divu $s1, $t1
+            mflo $s1       # Quotient
+            mfhi $t2       # Remainder (digit)
+            addi $t2, $t2, '0'
+            sb $t2, ($s0)
+            addi $s0, $s0, 1
+            addi $s2, $s2, 1
+            j its_extract_loop
+        
+        its_reverse:
+            # Reverse the string
+            move $t0, $a1  # Start of buffer
+            move $t1, $s0  # End of buffer (one past last digit)
+            addi $t1, $t1, -1
+            
+            its_reverse_loop:
+                bge $t0, $t1, its_done
+                lb $t2, ($t0)
+                lb $t3, ($t1)
+                sb $t3, ($t0)
+                sb $t2, ($t1)
+                addi $t0, $t0, 1
+                addi $t1, $t1, -1
+                j its_reverse_loop
+    
+    its_done:
+        # Null-terminate the string
+        sb $zero, ($s0)
+        
+        # Return values
+        move $v0, $a1
+        move $v1, $s2
+        
+        # Restore registers
+        lw $ra, 0($sp)
+        lw $s0, 4($sp)
+        lw $s1, 8($sp)
+        lw $s2, 12($sp)
+        addi $sp, $sp, 16
+        jr $ra
